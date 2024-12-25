@@ -24,18 +24,23 @@
 #include <iphlpapi.h>
 #pragma comment(lib, "Ws2_32.lib") // прилинковать к приложению динамическую библиотеку ядра ОС: ws2_32.dll. Делаем это через директиву компилятору
 #define CLOSE_SOCKET(socket) closesocket(socket)
+#define SHUT SD_BOTH
 
 #else
 
+#include <sys/types.h>//
 #include <arpa/inet.h>
 #include <sys/socket.h>
-#include <sys/poll.h>
+#include <netinet/in.h>//
+#include <poll.h>
+#include <unistd.h>//
 #include <fcntl.h>
 #include <errno.h>
 #include <string.h>
 #define SOCKET int
 #define INVALID_SOCKET -1
 #define CLOSE_SOCKET(socket) close(socket)
+#define SHUT SHUT_RDWR
 
 #endif
 
@@ -56,6 +61,7 @@ namespace network
         static int countWSAusers; // количество пользователей интерфейса
         unsigned objectID; // ID этого объекта
 #endif
+        void registration();
     protected :
         struct option_t // опции для сокета
         {
@@ -65,14 +71,20 @@ namespace network
         {
 #ifdef __WIN32__
             static constexpr int NON_BLOCK_SOCKET_NOT_READY = WSAEWOULDBLOCK; // сокет не блокирующий, не готов к отправке либо приему
+            static const int SOCKET_NON_CONNECTED = WSAENOTCONN;
 #else
             static const int NON_BLOCK_SOCKET_NOT_READY = EWOULDBLOCK; // сокет не блокирующий, не готов к отправке либо приему
+            static const int SOCKET_NON_CONNECTED = ENOTCONN;
 #endif
         };
         /// <summary>
         /// конструктор по умолчанию
         /// </summary>
         RAII_OSsock(log_t& logger);
+
+        RAII_OSsock(const RAII_OSsock& rvalue);
+
+        RAII_OSsock(RAII_OSsock&& rvalue) noexcept;
 
         virtual ~RAII_OSsock();
         /// <summary>
@@ -89,6 +101,8 @@ namespace network
         /// <param name="logger"> - объект для логгированя </param>
         /// <returns> 1 - успех </returns>
         bool setSocketOpt(SOCKET socket, int option, log_t& logger);
+    protected :
+        log_t& logger;
     };
 
     /// <summary>
@@ -216,6 +230,8 @@ namespace network
         /// </summary>
         /// <returns> true - сокет закрыт </returns>
         bool Close();
+
+        void Shutdown();
 
         /// <summary>
         /// назначает внешний адрес, по которому его будут находить транспортные протоколы по
@@ -394,6 +410,8 @@ namespace network
         /// </summary>
         /// <returns> 1 - соединение есть </returns>
         bool GetConnected() const;
+
+        void ResetConnected();
     protected:
         bool b_connected; // признак подключения сокета к серверу
         sockInfo_t serverInfo; // информация о сервере

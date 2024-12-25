@@ -177,7 +177,7 @@ public :
             std::cout << "IN: " << msg_RX.Str() << '\n'; ////////////////////////////////наладка
             // обновляем флаги
             b_connected &= GetConnected() && !(msg_RX.Type() == TypeMsg::Exit);
-            b_shutDown = b_shutDown ||  msg_RX.Type() == TypeMsg::shutDown;
+            b_shutDown = b_shutDown || msg_RX.Type() == TypeMsg::shutDown;
 
             // идем по списку собеседников
             for (auto it = l_visavi.begin(); it != l_visavi.end(); )
@@ -200,6 +200,8 @@ public :
             // если сервер отключается из-за нас
             if (b_shutDown && msg_RX.Type() == TypeMsg::shutDown)            
             {
+                msg_t msgTmp(TypeMsg::normal, "server shutdown"); // подтверждаем клиенту свое отключение
+                Send(msgTmp.Str());
                 std::cout << "shut down\n"; ////////////////////////////////наладка
                 network::TCP_socketClient_t signal(acceptor, logger); // толкаем ацептор в главном потоке
                 return; // выходим
@@ -227,6 +229,12 @@ public :
     /// <param name="port"> -- номер порта для прослушивания </param>
     chat_manager_t(unsigned port) : logger("server.log", true), acceptor(IP_ADRES, port, logger), tmpClient(logger), pool(MAX_COUNT_CLIENT)
     {}
+
+    ~chat_manager_t()
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        l_task.clear();
+    }
     /// <summary>
     /// основной метод работы
     /// </summary>
@@ -234,9 +242,20 @@ public :
     {
         while (0 == acceptor.AddClient(tmpClient) && !b_shutDown)
         {   // идем по списку задач(собеседников) и пробуем захватить их (либо удалить, если указатели уже не валидны)
+
+            std::lock_guard<std::mutex> lock(mutex);
+            for (auto it = l_task.begin(); it != l_task.end(); )
+                if (auto ptr = it->lock()) // если указатель валидный			
+                {  // диагностируем
+                    msg_t msgTmp(TypeMsg::linkOn);
+                    ptr->Send(msgTmp.Str());
+                    ++it;
+                }
+                else
+                    it = l_task.erase(it);
+
             if (l_task.size() < MAX_COUNT_CLIENT) // если размер позволяет
             {
-                std::lock_guard<std::mutex> lock(mutex);
                 auto newTask = std::make_shared<session_t>(l_task, mutex, tmpClient, acceptor.GetSockInfo(), b_shutDown, logger);
                 pool.AddTask(newTask);
                 l_task.push_back(newTask);
