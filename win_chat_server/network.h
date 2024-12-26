@@ -412,6 +412,8 @@ namespace network
         bool GetConnected() const;
 
         void ResetConnected();
+
+        void Shutdown();
     protected:
         bool b_connected; // признак подключения сокета к серверу
         sockInfo_t serverInfo; // информация о сервере

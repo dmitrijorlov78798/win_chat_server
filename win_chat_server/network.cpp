@@ -505,8 +505,7 @@ bool network::TCP_socketClient_t::SetSocket(SOCKET socket, sockInfo_t sockInfo)
 
 network::TCP_socketClient_t::~TCP_socketClient_t()
 {
-    if (b_connected)
-        socket_t::Shutdown();
+    Shutdown();
 }
 
 /// <summary>
@@ -713,6 +712,15 @@ bool network::TCP_socketClient_t::GetConnected() const
 void network::TCP_socketClient_t::ResetConnected()
 {
     b_connected = false;
+}
+
+void network::TCP_socketClient_t::Shutdown()
+{
+    if (b_connected)
+    {
+        socket_t::Shutdown();
+        b_connected = false;
+    }
 }
 
 /// <summary>

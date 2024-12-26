@@ -22,7 +22,6 @@ enum TypeMsg
     Exit, // отключение клиента
     shutDown, // отключение сервера
     linkOn, // собеседники на связи
-    linkOff, // собеседники потеряли связь
     printinfo // вывод информации по соединению
 };
 
@@ -32,13 +31,13 @@ enum TypeMsg
 /// </summary>
 class msg_t
 {
-public :
+public:
     /// <summary>
     /// контсруктор
     /// </summary>
     /// <param name="type"> -- тип сообщения</param>
-    /// <param name="text"> -- текс сообщения</param>
-    msg_t(TypeMsg type = TypeMsg::defaul, std::string text = "")
+    /// <param name="text"> -- текст сообщения</param>
+    msg_t(TypeMsg type = TypeMsg::defaul, std::string text = "") : offset(0)
     {
         switch (type)
         {
@@ -52,25 +51,23 @@ public :
             this->text = "[SHUT][EOM]";
             break;
         case linkOn:
-            this->text = "[LNK1][EOM]";
-            break;
-        case linkOff:
-            this->text = "[LNK0][EOM]";
+            this->text = "[LINK][EOM]";
             break;
         case printinfo:
-            this->text = "[INFO]"; // ЕОМ не нужен, для внутреннего пользованя клиента
+            this->text = "[INFO][EOM]"; 
             break;
         default:
             break;
         }
     }
-    
+
     /// <summary>
     /// метод получения не константной ссылки на внутренний std::string с сообщением
     /// </summary>
     /// <returns> не константная ссылка на внутренний std::string с сообщением </returns>
     std::string& Update()
     {
+        offset = 0;
         return text;
     }
 
@@ -100,10 +97,8 @@ public :
                 result = TypeMsg::Exit;
             else if (header == "[SHUT]")
                 result = TypeMsg::shutDown;
-            else if (header == "[LNK1]")
+            else if (header == "[LINK]")
                 result = TypeMsg::linkOn;
-            else if (header == "[LNK0]")
-                result = TypeMsg::linkOff;
             else if (header == "[INFO]")
                 result = TypeMsg::printinfo;
         }
@@ -124,14 +119,59 @@ public :
     /// метод получения текста сообщения без заголовка и конца сообщения
     /// </summary>
     /// <param name="buf"> -- ссылка на буфер, куда будет положен полезный текст сообщения </param>
-    void Print(std::string buf) const
+    ///  <returns> 1 -- текст получен </returns>
+    bool Print(std::string& buf) const
     {
         buf.clear();
-        if (Type() == TypeMsg::normal) // полезная нагрузка только в нормальном сообщении
+        switch (Type())
+        { // расшифровка сервесных сообщений
+        case TypeMsg::shutDown:
+            buf = "server get command shutdown";
+            break;
+        case TypeMsg::Exit:
+            buf = "server get command exit from visavi client";
+            break;
+        case TypeMsg::printinfo:
+            buf = "other visavi not connected";
+            break;
+        case TypeMsg::linkOn:
+            buf = "server get connected from visavi";
+            break;
+        case TypeMsg::defaul:
+            buf = "server recived defined message";
+            break;
+        case TypeMsg::normal:
             buf.assign(text, 6, text.size() - 11); // выдаем текст без заголовка и конца сообщения
+            break;
+        default:
+            break;
+        }
+
+        return !text.empty();
     }
-protected :
+
+    /// <summary>
+    /// метод задания смещения
+    /// </summary>
+    /// <param name="offset"> -- смещение </param>
+    void SetOffset(unsigned offset)
+    {
+        if (offset < text.size())
+            this->offset = offset;
+    }
+
+    /// <summary>
+    /// метод возврата смещения
+    /// </summary>
+    /// <returns> -- смещение </returns>
+    unsigned GetOffset() const
+    {
+        return offset;
+    }
+
+protected:
     std::string text; // строка хранящее сообщение, согласно формату, опраделенному выше
+    unsigned offset; // смещение от начала сообщения
 };
 
 /// <summary>
@@ -140,7 +180,7 @@ protected :
 /// </summary>
 class session_t : public ABStask, public network::TCP_socketClient_t
 {
-public :
+public:
     /// <summary>
     /// конструктор
     /// </summary>
@@ -150,12 +190,12 @@ public :
     /// <param name="aceptor"> -- информация об ацепторе </param>
     /// <param name="b_shutDown"> -- ссылка на флаг отключения сервера </param>
     /// <param name="logger"> -- ссылка на обект логгирования </param>
-    session_t(std::list<std::weak_ptr<session_t>>& l_visavi, 
-        std::mutex& mutex, network::TCP_socketClient_t& client, 
+    session_t(std::list<std::weak_ptr<session_t>>& l_visavi,
+        std::mutex& mutex, network::TCP_socketClient_t& client,
         network::sockInfo_t acceptor,
-        volatile std::atomic_bool& b_shutDown, 
+        volatile std::atomic_bool& b_shutDown,
         log_t& logger) :
-         network::TCP_socketClient_t(logger), l_visavi(l_visavi), mutex(mutex), acceptor(acceptor), b_shutDown(b_shutDown)
+        network::TCP_socketClient_t(logger), l_visavi(l_visavi), mutex(mutex), msg_RX(TypeMsg::linkOn), acceptor(acceptor), b_shutDown(b_shutDown)
     {
         Move(client); // кастомная (самодельная) move семантика
         b_connected = GetConnected();
@@ -170,13 +210,14 @@ public :
     /// </summary>
     /// <param name="stop"> -- флаг остановки задачи от пула потоков </param>
     void Work(const volatile std::atomic_bool& stop) override
-    {   // пока нет остановки и есть связь, и мы приняли сообщение, и нет отключения сервера
-        while (!stop && b_connected && 0 == Recive(msg_RX.Update(), msg_RX.EOM()) && !b_shutDown) 
-        {   // блокируем мьютекс списка собеседников, 
+    {
+        bool b_firstIter = true; // флаг первой итерации цикла
+        do // начинаем с рукопожатия
+        {   // блокируем мьютекс списка собеседников,
             std::lock_guard<std::mutex> lock(mutex);
-            std::cout << "IN: " << msg_RX.Str() << '\n'; ////////////////////////////////наладка
+            //std::cout << "IN: " << msg_RX.Str() << '\n'; ////////////////////////////////наладка
             // обновляем флаги
-            b_connected &= GetConnected() && !(msg_RX.Type() == TypeMsg::Exit);
+            b_connected &= GetConnected() && msg_RX.Type() != TypeMsg::Exit;
             b_shutDown = b_shutDown || msg_RX.Type() == TypeMsg::shutDown;
 
             // идем по списку собеседников
@@ -184,31 +225,43 @@ public :
                 if (auto ptr = it->lock()) // если указатель валидный
                 {
                     if (ptr->getSocket() != this->getSocket()) // себе не отправляем
-                        ptr->Send(msg_RX.Str()); // отправляем сообщение собеседнику
+                        if (0 != ptr->Send(msg_RX.Str())) // отправляем сообщение собеседнику
+                        { // диагностика ошибки
+                            msg_t msgTmp(TypeMsg::normal, "error send message visavi, errno: " + std::to_string(logger.GetLastErr()));
+                            Send(msgTmp.Str());
+                        }
+
                     ++it;
                 }
                 else
                     it = l_visavi.erase(it); // если указатель нулевой - удаляем
 
-            // если собеседников нет
-            if (l_visavi.empty())
+            // если в беседе только мы и мы пытаемся написать другим 
+            if (l_visavi.size() == 1 && msg_RX.Type() == TypeMsg::normal)
             {   // диагностируем
-                msg_t msgTmp(TypeMsg::linkOff);
+                msg_t msgTmp(TypeMsg::printinfo);
                 Send(msgTmp.Str());
             }
+            else if (b_firstIter) // в первый цикл, считаем собеседников
+                for (size_t indx = l_visavi.size(); indx > 1; --indx)
+                {
+                    msg_t msgTmp(TypeMsg::linkOn);
+                    Send(msgTmp.Str());
+                }
+            b_firstIter = false;
 
             // если сервер отключается из-за нас
-            if (b_shutDown && msg_RX.Type() == TypeMsg::shutDown)            
+            if (b_shutDown && msg_RX.Type() == TypeMsg::shutDown)
             {
                 msg_t msgTmp(TypeMsg::normal, "server shutdown"); // подтверждаем клиенту свое отключение
                 Send(msgTmp.Str());
-                std::cout << "shut down\n"; ////////////////////////////////наладка
                 network::TCP_socketClient_t signal(acceptor, logger); // толкаем ацептор в главном потоке
                 return; // выходим
             }
-        }
+            // пока нет остановки и есть связь, и мы приняли сообщение, и нет отключения сервера
+        } while (!stop && b_connected && 0 == Recive(msg_RX.Update(), msg_RX.EOM()) && !b_shutDown);
     }
-protected :
+protected:
     std::list<std::weak_ptr<session_t>>& l_visavi; // ссылка на список собеседников
     std::mutex& mutex; // ссылка на мьютекс, защищающий список собеседников
     msg_t msg_RX; // буфер для принятого от клиента сообщения
@@ -222,60 +275,73 @@ protected :
 /// </summary>
 class chat_manager_t
 {
-public :
+public:
     /// <summary>
     /// конструктор
     /// </summary>
     /// <param name="port"> -- номер порта для прослушивания </param>
-    chat_manager_t(unsigned port) : logger("server.log", true), acceptor(IP_ADRES, port, logger), tmpClient(logger), pool(MAX_COUNT_CLIENT)
+    chat_manager_t(unsigned port) : logger("server.log", true), acceptor(IP_ADRES, port, logger), pool(MAX_COUNT_CLIENT)
     {}
 
     ~chat_manager_t()
     {
-        std::lock_guard<std::mutex> lock(mutex);
-        l_task.clear();
+        std::cout << "shut down...\n"; ////////////////////////////////наладка
+        std::chrono::seconds sec{ 1 }; // ждем секунду на завершение потоков
+        std::this_thread::sleep_for(sec);
+        // собеседники должны успеть толкнуть свои соединения, для завершения задач(соединений)
+        std::lock_guard<std::mutex> lock(mutex); // проверяем это
+        // идем по списку задач(собеседников) и чистим выполненные
+        for (auto it = l_task.begin(); it != l_task.end(); )
+        {
+            if (auto ptr = it->lock()) // выключаем живые соединения, если еще кто жив
+                ptr->Shutdown();
+            it = l_task.erase(it);
+        }
     }
     /// <summary>
     /// основной метод работы
     /// </summary>
     void Work()
     {
-        while (0 == acceptor.AddClient(tmpClient) && !b_shutDown)
-        {   // идем по списку задач(собеседников) и пробуем захватить их (либо удалить, если указатели уже не валидны)
+        while (!b_shutDown)
+        {
+            network::TCP_socketClient_t tmpClient(logger); // буфер для получения клиентов от ацептора
+            if (0 == acceptor.AddClient(tmpClient)) // получаем подключение
+            { // если получили валидное подключение
+                std::lock_guard<std::mutex> lock(mutex);
+                if (!b_shutDown) // и нет команды на отключение
+                {
+                    // идем по списку задач(собеседников) и чистим выполненные
+                    for (auto it = l_task.begin(); it != l_task.end(); )
+                        if (auto ptr = it->lock())
+                            ++it;
+                        else
+                            it = l_task.erase(it);
 
-            std::lock_guard<std::mutex> lock(mutex);
-            for (auto it = l_task.begin(); it != l_task.end(); )
-                if (auto ptr = it->lock()) // если указатель валидный			
-                {  // диагностируем
-                    msg_t msgTmp(TypeMsg::linkOn);
-                    ptr->Send(msgTmp.Str());
-                    ++it;
+                    if (l_task.size() < MAX_COUNT_CLIENT) // если размер позволяет
+                    {   // добавляем задачу (собеседника)
+                        auto newTask = std::make_shared<session_t>(l_task, mutex, tmpClient, acceptor.GetSockInfo(), b_shutDown, logger);
+                        pool.AddTask(newTask);
+                        l_task.push_back(newTask);
+                    }
+                    else
+                    { // иначе, диагностируем превышение размера
+                        msg_t msg(TypeMsg::normal, "Maximum number of clients reached");
+                        tmpClient.Send(msg.Str());
+                    }
                 }
-                else
-                    it = l_task.erase(it);
-
-            if (l_task.size() < MAX_COUNT_CLIENT) // если размер позволяет
-            {
-                auto newTask = std::make_shared<session_t>(l_task, mutex, tmpClient, acceptor.GetSockInfo(), b_shutDown, logger);
-                pool.AddTask(newTask);
-                l_task.push_back(newTask);
             }
-            else
-            {
-                msg_t msg(TypeMsg::normal, "Maximum number of clients reached");
-                tmpClient.Send(msg.Str());
-            } 
         }
     }
-protected :
+protected:
     log_t logger; // объект для логгирования
     network::TCP_socketServer_t acceptor; // ацептор
-    network::TCP_socketClient_t tmpClient; // буфер для получения клиентов от ацептора
     poolThread_manager_t pool; // пул потоков
     volatile std::atomic_bool b_shutDown; // флаг отключения сервера
     std::list<std::weak_ptr<session_t>> l_task; // список собеседников
     std::mutex mutex; // мьютекс защиты списка собеседников
 };
+
 
 
 /// <summary>
