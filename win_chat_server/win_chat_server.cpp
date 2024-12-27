@@ -250,12 +250,16 @@ public:
                 }
             b_firstIter = false;
 
+            if(!b_connected)
+                logger.doLog("Close client, count client: " + std::to_string(l_visavi.size() - 1));
+
             // если сервер отключается из-за нас
             if (b_shutDown && msg_RX.Type() == TypeMsg::shutDown)
             {
                 msg_t msgTmp(TypeMsg::normal, "server shutdown"); // подтверждаем клиенту свое отключение
                 Send(msgTmp.Str());
                 network::TCP_socketClient_t signal(acceptor, logger); // толкаем ацептор в главном потоке
+                logger.doLog("Close client, count client: " + std::to_string(l_visavi.size() - 1));
                 return; // выходим
             }
             // пока нет остановки и есть связь, и мы приняли сообщение, и нет отключения сервера
@@ -323,14 +327,18 @@ public:
                         auto newTask = std::make_shared<session_t>(l_task, mutex, tmpClient, acceptor.GetSockInfo(), b_shutDown, logger);
                         pool.AddTask(newTask);
                         l_task.push_back(newTask);
+                        logger.doLog("Connected new client, count client: " + std::to_string(l_task.size()));
                     }
                     else
                     { // иначе, диагностируем превышение размера
                         msg_t msg(TypeMsg::normal, "Maximum number of clients reached");
                         tmpClient.Send(msg.Str());
+                        logger.doLog("Maximum number of clients reached");
                     }
                 }
             }
+            else
+                b_shutDown = true;
         }
     }
 protected:
