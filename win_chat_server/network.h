@@ -1,18 +1,19 @@
 #pragma once
 #ifndef NETWORK_H_
 #define NETWORK_H_
-#define __WIN32__
+
 #include <vector>
 #include <list>
 #include <map>
 #include <string>
+#include <unordered_map>
+#include <memory>
 
 #include "log.h"
 
 #ifdef __WIN32__
 
 #include <unordered_set>
-#include <unordered_map>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -39,7 +40,7 @@
 #include <string.h>
 #define SOCKET int
 #define INVALID_SOCKET -1
-#define CLOSE_SOCKET(socket) close(socket)
+#define CLOSE_SOCKET(socket) close(socket) 
 #define SHUT SHUT_RDWR
 
 #endif
@@ -78,15 +79,29 @@ namespace network
 #endif
         };
         /// <summary>
-        /// конструктор по умолчанию
+        /// Конструктор
         /// </summary>
+        /// <param name="logger"> -- ссылка на объект для логгирования </param>
         RAII_OSsock(log_t& logger);
 
+        /// <summary>
+        /// конструктор копирования
+        /// </summary>
+        /// <param name="rvalue"> -- копируемый объект</param>
         RAII_OSsock(const RAII_OSsock& rvalue);
 
+        /// <summary>
+        /// конструктор перемещения
+        /// </summary>
+        /// <param name="rvalue"> -- перемещаемый объект</param>
+        /// <returns></returns>
         RAII_OSsock(RAII_OSsock&& rvalue) noexcept;
 
+        /// <summary>
+        /// деструктор
+        /// </summary>
         virtual ~RAII_OSsock();
+
         /// <summary>
         /// Метод вывода номера последней ошибки
         /// </summary>
@@ -231,6 +246,9 @@ namespace network
         /// <returns> true - сокет закрыт </returns>
         bool Close();
 
+        /// <summary>
+        /// Метод отключения сокета
+        /// </summary>
         void Shutdown();
 
         /// <summary>
@@ -346,7 +364,11 @@ namespace network
 
     public:
 
+        /// <summary>
+        /// деструктор
+        /// </summary>
         virtual ~TCP_socketClient_t();
+
         /// <summary>
         /// метод переноса уникального ресурса (дескпритор) между сокетами
         /// </summary>
@@ -411,8 +433,14 @@ namespace network
         /// <returns> 1 - соединение есть </returns>
         bool GetConnected() const;
 
+        /// <summary>
+        /// Метод логического сброса соединения
+        /// </summary>
         void ResetConnected();
 
+        /// <summary>
+        /// Метод отключения сокета
+        /// </summary>
         void Shutdown();
     protected:
         bool b_connected; // признак подключения сокета к серверу

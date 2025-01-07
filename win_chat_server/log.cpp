@@ -51,9 +51,13 @@ void log_t::doLog(std::string log, int errCode)
         msg.append(std::to_string(errCode));
     }
     // вывод в консоль
-    if (consoleActive) printf("%s\n", msg.c_str());
+    if (consoleActive) std::cout << msg << '\n';
     // вывод в файл
-    if (logFile.is_open()) logFile << msg << '\n';
+    if (logFile.is_open())
+    {
+        logFile << msg << '\n';
+        logFile.flush();
+    }
 }
 #ifdef DEBUG
 /// <summary>

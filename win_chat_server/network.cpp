@@ -17,23 +17,36 @@ void network::RAII_OSsock::registration()
 }
 
 /// <summary>
-/// конструктор по умолчанию
+/// Конструктор
 /// </summary>
+/// <param name="logger"> -- ссылка на объект для логгирования </param>
 network::RAII_OSsock::RAII_OSsock(log_t& logger) : logger(logger)
 {
     registration();
 }
 
+/// <summary>
+/// конструктор копирования
+/// </summary>
+/// <param name="rvalue"> -- копируемый объект</param>
 network::RAII_OSsock::RAII_OSsock(const RAII_OSsock& rvalue) : logger(rvalue.logger)
 {
     registration();
 }
 
+/// <summary>
+/// конструктор перемещения
+/// </summary>
+/// <param name="rvalue"> -- перемещаемый объект</param>
+/// <returns></returns>
 network::RAII_OSsock::RAII_OSsock(RAII_OSsock&& rvalue) noexcept : logger(rvalue.logger)
 {
     registration();
 }
 
+/// <summary>
+/// деструктор
+/// </summary>
 network::RAII_OSsock::~RAII_OSsock()
 {
 #ifdef __WIN32__
@@ -311,7 +324,7 @@ bool network::socket_t::SetSocket(SOCKET socket, bool nonBlock)
             Socket = socket;
             this->nonBlock = nonBlock; // accept вернет дефолтный блокирующий сокет
             // обновляем информацию о сокете
-            int sizeAddr = SizeAddr();
+            socklen_t sizeAddr = SizeAddr();
             if (!getsockname(Socket, setSockAddr(), &sizeAddr))
                 UpdateSockInfo();// обязательно после setSockAddr()
             else
@@ -341,6 +354,9 @@ bool network::socket_t::Close()
     return Socket == INVALID_SOCKET;
 }
 
+/// <summary>
+/// Метод отключения сокета
+/// </summary>
 void network::socket_t::Shutdown()
 {
     if (shutdown(Socket, SHUT) < 0 && GetError() != error_t::SOCKET_NON_CONNECTED)
@@ -503,6 +519,9 @@ bool network::TCP_socketClient_t::SetSocket(SOCKET socket, sockInfo_t sockInfo)
     return result;
 }
 
+/// <summary>
+/// деструктор
+/// </summary>
 network::TCP_socketClient_t::~TCP_socketClient_t()
 {
     Shutdown();
@@ -700,6 +719,7 @@ bool network::TCP_socketClient_t::Connected()
 
     return b_connected;
 }
+
 /// <summary>
 /// метод возврата состояния соединения
 /// </summary>
@@ -709,11 +729,17 @@ bool network::TCP_socketClient_t::GetConnected() const
     return b_connected;
 }
 
+/// <summary>
+/// Метод логического сброса соединения
+/// </summary>
 void network::TCP_socketClient_t::ResetConnected()
 {
     b_connected = false;
 }
 
+/// <summary>
+/// Метод отключения сокета
+/// </summary>
 void network::TCP_socketClient_t::Shutdown()
 {
     if (b_connected)
@@ -763,7 +789,7 @@ int network::TCP_socketServer_t::AddClient(TCP_socketClient_t& client)
     if (!client.CheckValidSocket(false) && CheckValidSocket(false))
     {
         sockInfo_t tempInfo(logger); // информация о подключенном сокете
-        int sizeAddr = tempInfo.SizeAddr(); // ее размер
+        socklen_t sizeAddr = tempInfo.SizeAddr(); // ее размер
         //функция используется сервером для принятия связи на сокет. Сокет должен быть уже слушающим в момент вызова функции.
         //Если сервер устанавливает связь с клиентом, то функция accept возвращает новый сокет-дескриптор, через который
         //и происходит общение клиента с сервером.
@@ -811,10 +837,14 @@ void network::UDP_socket_t::Move(UDP_socket_t& source)
 /// </summary>
 void network::UDP_socket_t::setMTU()
 {
+#ifdef __WIN32__
     int optlen = sizeof(u32_MTU); // размер опции
     //Функция getsockopt извлекает текущее значение для параметра сокета, связанного с сокетом любого типа, в любом состоянии
     if (getsockopt(Socket, SOL_SOCKET, SO_MAX_MSG_SIZE, (char*)(&u32_MTU), &optlen))
         logger.doLog("getsockopt fail ", GetError());
+#else
+    u32_MTU = 512; // TODO реализовать и для линукса
+#endif
 }
 
 /// <summary>
@@ -941,7 +971,7 @@ int network::UDP_socket_t::RecvFrom(std::string& buffer, const std::string str_E
     {
         buffer.clear(); // готовим буфер
         std::string tempStr(2048, '\0'); // временная строка фиксированного размера для приема данных
-        int SizeAddr = lastCommunicationSocket.SizeAddr(); // размер структуры Addr
+        socklen_t SizeAddr = lastCommunicationSocket.SizeAddr(); // размер структуры Addr
         // Функция recvfrom получает датаграмму и сохраняет исходный адрес
         int recvSize = recvfrom(Socket, &tempStr[0], tempStr.size(), 0, lastCommunicationSocket.setSockAddr(), &SizeAddr);
 

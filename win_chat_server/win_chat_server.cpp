@@ -285,11 +285,12 @@ public:
     /// </summary>
     /// <param name="port"> -- номер порта для прослушивания </param>
     chat_manager_t(unsigned port) : logger("server.log", true), acceptor(IP_ADRES, port, logger), pool(MAX_COUNT_CLIENT)
-    {}
+    {
+        logger.doLog("server run");
+    }
 
     ~chat_manager_t()
-    {
-        std::cout << "shut down...\n"; ////////////////////////////////наладка
+    { 
         std::chrono::seconds sec{ 1 }; // ждем секунду на завершение потоков
         std::this_thread::sleep_for(sec);
         // собеседники должны успеть толкнуть свои соединения, для завершения задач(соединений)
@@ -301,6 +302,7 @@ public:
                 ptr->Shutdown();
             it = l_task.erase(it);
         }
+        logger.doLog("server shutdown");
     }
     /// <summary>
     /// основной метод работы
@@ -364,7 +366,6 @@ bool parseParam(int argc, char* argv[], unsigned& r_port);
 
 int main(int argc, char* argv[])
 {
-    printf("run_server\n");
     unsigned u32_port = 0;
 
     if (parseParam(argc, argv, u32_port))
@@ -392,7 +393,7 @@ bool parseParam(int argc, char* argv[], unsigned& r_port)
     if (argc == 2)
     {
         r_port = std::strtoul(argv[1], NULL, 10);
-        b_result = r_port != 0 && r_port != ULONG_MAX;
+        b_result = r_port != 0 && r_port != 0xFFFFFFFFUL;
     }
 
     return b_result;
