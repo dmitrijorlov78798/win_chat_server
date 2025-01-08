@@ -126,19 +126,19 @@ public:
         switch (Type())
         { // расшифровка сервесных сообщений
         case TypeMsg::shutDown:
-            buf = "server get command shutdown";
+            buf = "SYSTEM MSG: server get command shutdown";
             break;
         case TypeMsg::Exit:
-            buf = "server get command exit from visavi client";
+            buf = "SYSTEM MSG: server get command exit from visavi client";
             break;
         case TypeMsg::printinfo:
-            buf = "other visavi not connected";
+            buf = "SYSTEM MSG: other visavi not connected";
             break;
         case TypeMsg::linkOn:
-            buf = "server get connected from visavi";
+            buf = "SYSTEM MSG: server get connected from visavi";
             break;
         case TypeMsg::defaul:
-            buf = "server recived defined message";
+            buf = "SYSTEM MSG: server recived defined message";
             break;
         case TypeMsg::normal:
             buf.assign(text, 6, text.size() - 11); // выдаем текст без заголовка и конца сообщения
@@ -227,7 +227,7 @@ public:
                     if (ptr->getSocket() != this->getSocket()) // себе не отправляем
                         if (0 != ptr->Send(msg_RX.Str())) // отправляем сообщение собеседнику
                         { // диагностика ошибки
-                            msg_t msgTmp(TypeMsg::normal, "error send message visavi, errno: " + std::to_string(logger.GetLastErr()));
+                            msg_t msgTmp(TypeMsg::normal, "SYSTEM MSG: error send message visavi, errno: " + std::to_string(logger.GetLastErr()));
                             Send(msgTmp.Str());
                         }
 
@@ -250,20 +250,27 @@ public:
                 }
             b_firstIter = false;
 
-            if(!b_connected)
-                logger.doLog("Close client, count client: " + std::to_string(l_visavi.size() - 1));
-
             // если сервер отключается из-за нас
             if (b_shutDown && msg_RX.Type() == TypeMsg::shutDown)
             {
-                msg_t msgTmp(TypeMsg::normal, "server shutdown"); // подтверждаем клиенту свое отключение
+                msg_t msgTmp(TypeMsg::normal, "SYSTEM MSG: server shutdown"); // подтверждаем клиенту свое отключение
                 Send(msgTmp.Str());
                 network::TCP_socketClient_t signal(acceptor, logger); // толкаем ацептор в главном потоке
-                logger.doLog("Close client, count client: " + std::to_string(l_visavi.size() - 1));
-                return; // выходим
+                break; // выходим
             }
-            // пока нет остановки и есть связь, и мы приняли сообщение, и нет отключения сервера
+            // крутимся пока нет остановки и есть связь, и мы приняли сообщение, и нет отключения сервера
         } while (!stop && b_connected && 0 == Recive(msg_RX.Update(), msg_RX.EOM()) && !b_shutDown);
+
+        // логгируем активность
+        std::lock_guard<std::mutex> lock(mutex);
+        // удаляем нулевые указатели
+        for (auto it = l_visavi.begin(); it != l_visavi.end(); )
+            if (auto ptr = it->lock())
+                ++it;
+            else
+                it = l_visavi.erase(it);
+        // вывод в лог
+        logger.doLog("Close client, count client: " + std::to_string(l_visavi.size() - 1));
     }
 protected:
     std::list<std::weak_ptr<session_t>>& l_visavi; // ссылка на список собеседников
@@ -333,7 +340,7 @@ public:
                     }
                     else
                     { // иначе, диагностируем превышение размера
-                        msg_t msg(TypeMsg::normal, "Maximum number of clients reached");
+                        msg_t msg(TypeMsg::normal, "SYSTEM MSG: Maximum number of clients reached");
                         tmpClient.Send(msg.Str());
                         logger.doLog("Maximum number of clients reached");
                     }
